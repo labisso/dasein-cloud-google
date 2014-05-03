@@ -116,9 +116,9 @@ public class ServerSupport extends AbstractVMSupport {
         try{
             Compute gce = provider.getGoogleCompute();
             String[] parts = productId.split("\\+");
-            MachineTypeList types = gce.machineTypes().list(provider.getContext().getAccountNumber(), parts[1]).setFilter("id eq " + parts[0]).execute();
+            MachineTypeList types = gce.machineTypes().list(provider.getContext().getAccountNumber(), parts[1]).setFilter("name eq " + parts[0]).execute();
             for(MachineType type : types.getItems()){
-                if(parts[0].equals(type.getId() + ""))return toProduct(type);
+                if(parts[0].equals(type.getName() + ""))return toProduct(type);
             }
             throw new CloudException("The product: " + productId + " could not be found.");
         }
