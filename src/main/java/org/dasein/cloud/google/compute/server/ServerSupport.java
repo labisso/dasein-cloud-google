@@ -116,9 +116,9 @@ public class ServerSupport extends AbstractVMSupport {
         try{
             Compute gce = provider.getGoogleCompute();
             String[] parts = productId.split("\\+");
-            MachineTypeList types = gce.machineTypes().list(provider.getContext().getAccountNumber(), parts[1]).setFilter("id eq " + parts[0]).execute();
+            MachineTypeList types = gce.machineTypes().list(provider.getContext().getAccountNumber(), parts[1]).setFilter("name eq " + parts[0]).execute();
             for(MachineType type : types.getItems()){
-                if(parts[0].equals(type.getId() + ""))return toProduct(type);
+                if(parts[0].equals(type.getName() + ""))return toProduct(type);
             }
             throw new CloudException("The product: " + productId + " could not be found.");
         }
@@ -175,22 +175,9 @@ public class ServerSupport extends AbstractVMSupport {
                 throw new InternalException("A VLAN must be specified withn launching an instance");
             }
 
-            //Need to create a Disk with the sourceImage set first
-            String diskURL = "";
-            Disk disk = new Disk();
             MachineImage image = provider.getComputeServices().getImageSupport().getImage(withLaunchOptions.getMachineImageId());
-            disk.setSourceImage((String)image.getTag("contentLink"));
-            disk.setName(withLaunchOptions.getFriendlyName());
-            disk.setSizeGb(10L);
-
-            Operation job = null;
-            try{
-                job = gce.disks().insert(provider.getContext().getAccountNumber(), withLaunchOptions.getDataCenterId(), disk).execute();
-                diskURL = method.getOperationTarget(provider.getContext(), job, GoogleOperationType.ZONE_OPERATION, "", withLaunchOptions.getDataCenterId(), true);
-            }
-            catch(IOException ex){
-                logger.error(ex.getMessage());
-                throw new CloudException("An error occurred creating the root volume for the instance: " + ex.getMessage());
+            if (image == null) {
+                throw new InternalException("Specified image ID is not found: " + withLaunchOptions.getMachineImageId());
             }
 
             Instance instance = new Instance();
@@ -202,11 +189,19 @@ public class ServerSupport extends AbstractVMSupport {
             rootVolume.setBoot(Boolean.TRUE);
             rootVolume.setType("PERSISTENT");
             rootVolume.setMode("READ_WRITE");
-            rootVolume.setSource(diskURL);
 
-            List<AttachedDisk> attachedDisks = new ArrayList<AttachedDisk>();
-            attachedDisks.add(rootVolume);
-            instance.setDisks(attachedDisks);
+            // the current GCE client library version we are using doesn't natively support
+            // the disk.initializeParams field we use to feed in the source image ID. So we
+            // load it in via this "unknownKeys" mechanism. Once we bump to a new version
+            // we should be able to clean this up.
+            final HashMap<String, Object> initializeParams = new HashMap<String, Object>(2);
+            initializeParams.put("diskName", withLaunchOptions.getFriendlyName());
+            initializeParams.put("sourceImage", image.getTag("contentLink"));
+            final HashMap<String, Object> unknownFields = new HashMap<String, Object>();
+            unknownFields.put("initializeParams", initializeParams);
+            rootVolume.setUnknownKeys(unknownFields);
+
+            instance.setDisks(Collections.singletonList(rootVolume));
 
             AccessConfig nicConfig = new AccessConfig();
             nicConfig.setName(withLaunchOptions.getFriendlyName() + "NicConfig");
@@ -247,14 +242,10 @@ public class ServerSupport extends AbstractVMSupport {
 
             String vmId = "";
             try{
-                job = gce.instances().insert(provider.getContext().getAccountNumber(), withLaunchOptions.getDataCenterId(), instance).execute();
+                Operation job = gce.instances().insert(provider.getContext().getAccountNumber(), withLaunchOptions.getDataCenterId(), instance).execute();
                 vmId = method.getOperationTarget(provider.getContext(), job, GoogleOperationType.ZONE_OPERATION, "", withLaunchOptions.getDataCenterId(), false);
             }
             catch(IOException ex){
-                try{
-                    gce.disks().delete(provider.getContext().getAccountNumber(), withLaunchOptions.getDataCenterId(), diskURL.substring(diskURL.lastIndexOf("/") + 1)).execute();
-                }
-                catch(IOException ex1){}
                 logger.error(ex.getMessage());
                 throw new CloudException("An error occurred launching the instance: " + ex.getMessage());
             }
