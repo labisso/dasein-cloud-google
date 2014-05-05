@@ -228,7 +228,8 @@ public class ServerSupport extends AbstractVMSupport {
                 Metadata metadata = new Metadata();
                 ArrayList<Metadata.Items> items = new ArrayList<Metadata.Items>();
                 Metadata.Items item = new Metadata.Items();
-                item.set("sshKeys", withLaunchOptions.getBootstrapUser() + ":" + withLaunchOptions.getBootstrapKey());
+                item.set("key", "sshKeys");
+                item.set("value", withLaunchOptions.getBootstrapUser() + ":" + withLaunchOptions.getBootstrapKey());
                 items.add(item);
                 metadata.setItems(items);
                 instance.setMetadata(metadata);
